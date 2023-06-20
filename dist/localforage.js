@@ -2186,7 +2186,9 @@ function _initStorage$2(options) {
         }
     }
 
-    dbInfo.keyPrefix = _getKeyPrefix(options, self._defaultConfig);
+    if (dbInfo.keyPrefix == null) {
+        dbInfo.keyPrefix = _getKeyPrefix(options, self._defaultConfig);
+    }
 
     if (!_isLocalStorageUsable()) {
         return Promise$1.reject();
