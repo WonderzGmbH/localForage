@@ -48,7 +48,7 @@ const DefaultConfig = {
     size: 4980736,
     storeName: 'keyvaluepairs',
     version: 1.0,
-    disableStringifyOnAccess: false
+    disableSerializeOnAccess: false
 };
 
 function callWhenReady(localForageInstance, libraryMethod) {

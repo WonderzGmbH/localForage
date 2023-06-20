@@ -13,7 +13,7 @@ interface LocalForageOptions extends LocalForageDbInstanceOptions {
 
     description?: string;
 
-    disableStringifyOnAccess?: boolean;
+    disableSerializeOnAccess?: boolean;
 }
 
 interface LocalForageDbMethodsCore {

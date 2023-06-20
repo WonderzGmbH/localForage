@@ -92,7 +92,7 @@ function bufferToString(buffer) {
 // Serialize a value, afterwards executing a callback (which usually
 // instructs the `setItem()` callback/promise to be executed). This is how
 // we store binary data with localStorage.
-function serialize(value, disableStringifyOnAccess, callback) {
+function serialize(value, callback) {
     var valueType = '';
     if (value) {
         valueType = toString.call(value);
@@ -161,11 +161,7 @@ function serialize(value, disableStringifyOnAccess, callback) {
         fileReader.readAsArrayBuffer(value);
     } else {
         try {
-            callback(
-                disableStringifyOnAccess === true
-                    ? value
-                    : JSON.stringify(value)
-            );
+            callback(JSON.stringify(value));
         } catch (e) {
             console.error("Couldn't convert value into a JSON string: ", value);
 
@@ -182,12 +178,12 @@ function serialize(value, disableStringifyOnAccess, callback) {
 // Oftentimes this will just deserialize JSON content, but if we have a
 // special marker (SERIALIZED_MARKER, defined above), we will extract
 // some kind of arraybuffer/binary data/typed array out of the string.
-function deserialize(value, disableStringifyOnAccess) {
+function deserialize(value) {
     // If we haven't marked this string as being specially serialized (i.e.
     // something other than serialized JSON), we can just return it and be
     // done with it.
     if (value.substring(0, SERIALIZED_MARKER_LENGTH) !== SERIALIZED_MARKER) {
-        return disableStringifyOnAccess === true ? value : JSON.parse(value);
+        return JSON.parse(value);
     }
 
     // The following code deals with deserializing some kind of Blob or

@@ -1535,7 +1535,7 @@ function bufferToString(buffer) {
 // Serialize a value, afterwards executing a callback (which usually
 // instructs the `setItem()` callback/promise to be executed). This is how
 // we store binary data with localStorage.
-function serialize(value, disableStringifyOnAccess, callback) {
+function serialize(value, callback) {
     var valueType = '';
     if (value) {
         valueType = toString$1.call(value);
@@ -1595,7 +1595,7 @@ function serialize(value, disableStringifyOnAccess, callback) {
         fileReader.readAsArrayBuffer(value);
     } else {
         try {
-            callback(disableStringifyOnAccess === true ? value : JSON.stringify(value));
+            callback(JSON.stringify(value));
         } catch (e) {
             console.error("Couldn't convert value into a JSON string: ", value);
 
@@ -1612,12 +1612,12 @@ function serialize(value, disableStringifyOnAccess, callback) {
 // Oftentimes this will just deserialize JSON content, but if we have a
 // special marker (SERIALIZED_MARKER, defined above), we will extract
 // some kind of arraybuffer/binary data/typed array out of the string.
-function deserialize(value, disableStringifyOnAccess) {
+function deserialize(value) {
     // If we haven't marked this string as being specially serialized (i.e.
     // something other than serialized JSON), we can just return it and be
     // done with it.
     if (value.substring(0, SERIALIZED_MARKER_LENGTH) !== SERIALIZED_MARKER) {
-        return disableStringifyOnAccess === true ? value : JSON.parse(value);
+        return JSON.parse(value);
     }
 
     // The following code deals with deserializing some kind of Blob or
@@ -1759,8 +1759,8 @@ function getItem$1(key, callback) {
 
                     // Check to see if this is serialized content we need to
                     // unpack.
-                    if (result) {
-                        result = dbInfo.serializer.deserialize(result, dbInfo.disableStringifyOnAccess);
+                    if (result && dbInfo.disableSerializeOnAccess === false) {
+                        result = dbInfo.serializer.deserialize(result);
                     }
 
                     resolve(result);
@@ -1793,8 +1793,8 @@ function iterate$1(iterator, callback) {
 
                         // Check to see if this is serialized content
                         // we need to unpack.
-                        if (result) {
-                            result = dbInfo.serializer.deserialize(result, dbInfo.disableStringifyOnAccess);
+                        if (result && dbInfo.disableSerializeOnAccess === false) {
+                            result = dbInfo.serializer.deserialize(result);
                         }
 
                         result = iterator(result, item.key, i + 1);
@@ -1837,36 +1837,64 @@ function _setItem(key, value, callback, retriesLeft) {
             var originalValue = value;
 
             var dbInfo = self._dbInfo;
-            dbInfo.serializer.serialize(value, dbInfo.disableStringifyOnAccess, function (value, error) {
-                if (error) {
-                    reject(error);
-                } else {
-                    dbInfo.db.transaction(function (t) {
-                        tryExecuteSql(t, dbInfo, 'INSERT OR REPLACE INTO ' + dbInfo.storeName + ' ' + '(key, value) VALUES (?, ?)', [key, value], function () {
-                            resolve(originalValue);
-                        }, function (t, error) {
-                            reject(error);
-                        });
-                    }, function (sqlError) {
-                        // The transaction failed; check
-                        // to see if it's a quota error.
-                        if (sqlError.code === sqlError.QUOTA_ERR) {
-                            // We reject the callback outright for now, but
-                            // it's worth trying to re-run the transaction.
-                            // Even if the user accepts the prompt to use
-                            // more storage on Safari, this error will
-                            // be called.
-                            //
-                            // Try to re-run the transaction.
-                            if (retriesLeft > 0) {
-                                resolve(_setItem.apply(self, [key, originalValue, callback, retriesLeft - 1]));
-                                return;
-                            }
-                            reject(sqlError);
-                        }
+
+            if (dbInfo.disableSerializeOnAccess === true) {
+                dbInfo.db.transaction(function (t) {
+                    tryExecuteSql(t, dbInfo, 'INSERT OR REPLACE INTO ' + dbInfo.storeName + ' ' + '(key, value) VALUES (?, ?)', [key, value], function () {
+                        resolve(originalValue);
+                    }, function (t, error) {
+                        reject(error);
                     });
-                }
-            });
+                }, function (sqlError) {
+                    // The transaction failed; check
+                    // to see if it's a quota error.
+                    if (sqlError.code === sqlError.QUOTA_ERR) {
+                        // We reject the callback outright for now, but
+                        // it's worth trying to re-run the transaction.
+                        // Even if the user accepts the prompt to use
+                        // more storage on Safari, this error will
+                        // be called.
+                        //
+                        // Try to re-run the transaction.
+                        if (retriesLeft > 0) {
+                            resolve(_setItem.apply(self, [key, originalValue, callback, retriesLeft - 1]));
+                            return;
+                        }
+                        reject(sqlError);
+                    }
+                });
+            } else {
+                dbInfo.serializer.serialize(value, function (value, error) {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        dbInfo.db.transaction(function (t) {
+                            tryExecuteSql(t, dbInfo, 'INSERT OR REPLACE INTO ' + dbInfo.storeName + ' ' + '(key, value) VALUES (?, ?)', [key, value], function () {
+                                resolve(originalValue);
+                            }, function (t, error) {
+                                reject(error);
+                            });
+                        }, function (sqlError) {
+                            // The transaction failed; check
+                            // to see if it's a quota error.
+                            if (sqlError.code === sqlError.QUOTA_ERR) {
+                                // We reject the callback outright for now, but
+                                // it's worth trying to re-run the transaction.
+                                // Even if the user accepts the prompt to use
+                                // more storage on Safari, this error will
+                                // be called.
+                                //
+                                // Try to re-run the transaction.
+                                if (retriesLeft > 0) {
+                                    resolve(_setItem.apply(self, [key, originalValue, callback, retriesLeft - 1]));
+                                    return;
+                                }
+                                reject(sqlError);
+                            }
+                        });
+                    }
+                });
+            }
         })["catch"](reject);
     });
 
@@ -2206,8 +2234,8 @@ function getItem$2(key, callback) {
         // string into a JS object. If result isn't truthy, the key
         // is likely undefined and we'll pass it straight to the
         // callback.
-        if (result) {
-            result = dbInfo.serializer.deserialize(result, dbInfo.disableStringifyOnAccess);
+        if (result && dbInfo.disableSerializeOnAccess === false) {
+            result = dbInfo.serializer.deserialize(result);
         }
 
         return result;
@@ -2246,8 +2274,8 @@ function iterate$2(iterator, callback) {
             // string into a JS object. If result isn't truthy, the
             // key is likely undefined and we'll pass it straight
             // to the iterator.
-            if (value) {
-                value = dbInfo.serializer.deserialize(value, dbInfo.disableStringifyOnAccess);
+            if (value && dbInfo.disableSerializeOnAccess === false) {
+                value = dbInfo.serializer.deserialize(value);
             }
 
             value = iterator(value, key.substring(keyPrefixLength), iterationNumber++);
@@ -2354,23 +2382,38 @@ function setItem$2(key, value, callback) {
 
         return new Promise$1(function (resolve, reject) {
             var dbInfo = self._dbInfo;
-            dbInfo.serializer.serialize(value, dbInfo.disableStringifyOnAccess, function (value, error) {
-                if (error) {
-                    reject(error);
-                } else {
-                    try {
-                        localStorage.setItem(dbInfo.keyPrefix + key, value);
-                        resolve(originalValue);
-                    } catch (e) {
-                        // localStorage capacity exceeded.
-                        // TODO: Make this a specific error/event.
-                        if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
-                            reject(e);
-                        }
+
+            if (dbInfo.disableSerializeOnAccess === true) {
+                try {
+                    localStorage.setItem(dbInfo.keyPrefix + key, value);
+                    resolve(originalValue);
+                } catch (e) {
+                    // localStorage capacity exceeded.
+                    // TODO: Make this a specific error/event.
+                    if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
                         reject(e);
                     }
+                    reject(e);
                 }
-            });
+            } else {
+                dbInfo.serializer.serialize(value, function (value, error) {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        try {
+                            localStorage.setItem(dbInfo.keyPrefix + key, value);
+                            resolve(originalValue);
+                        } catch (e) {
+                            // localStorage capacity exceeded.
+                            // TODO: Make this a specific error/event.
+                            if (e.name === 'QuotaExceededError' || e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+                                reject(e);
+                            }
+                            reject(e);
+                        }
+                    }
+                });
+            }
         });
     });
 
@@ -2477,7 +2520,7 @@ var DefaultConfig = {
     size: 4980736,
     storeName: 'keyvaluepairs',
     version: 1.0,
-    disableStringifyOnAccess: false
+    disableSerializeOnAccess: false
 };
 
 function callWhenReady(localForageInstance, libraryMethod) {
