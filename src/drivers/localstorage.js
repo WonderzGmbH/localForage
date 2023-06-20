@@ -100,7 +100,10 @@ function getItem(key, callback) {
         // is likely undefined and we'll pass it straight to the
         // callback.
         if (result) {
-            result = dbInfo.serializer.deserialize(result);
+            result = dbInfo.serializer.deserialize(
+                result,
+                dbInfo.disableStringifyOnAccess
+            );
         }
 
         return result;
@@ -140,7 +143,10 @@ function iterate(iterator, callback) {
             // key is likely undefined and we'll pass it straight
             // to the iterator.
             if (value) {
-                value = dbInfo.serializer.deserialize(value);
+                value = dbInfo.serializer.deserialize(
+                    value,
+                    dbInfo.disableStringifyOnAccess
+                );
             }
 
             value = iterator(
@@ -251,26 +257,30 @@ function setItem(key, value, callback) {
 
         return new Promise(function(resolve, reject) {
             var dbInfo = self._dbInfo;
-            dbInfo.serializer.serialize(value, function(value, error) {
-                if (error) {
-                    reject(error);
-                } else {
-                    try {
-                        localStorage.setItem(dbInfo.keyPrefix + key, value);
-                        resolve(originalValue);
-                    } catch (e) {
-                        // localStorage capacity exceeded.
-                        // TODO: Make this a specific error/event.
-                        if (
-                            e.name === 'QuotaExceededError' ||
-                            e.name === 'NS_ERROR_DOM_QUOTA_REACHED'
-                        ) {
+            dbInfo.serializer.serialize(
+                value,
+                dbInfo.disableStringifyOnAccess,
+                function(value, error) {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        try {
+                            localStorage.setItem(dbInfo.keyPrefix + key, value);
+                            resolve(originalValue);
+                        } catch (e) {
+                            // localStorage capacity exceeded.
+                            // TODO: Make this a specific error/event.
+                            if (
+                                e.name === 'QuotaExceededError' ||
+                                e.name === 'NS_ERROR_DOM_QUOTA_REACHED'
+                            ) {
+                                reject(e);
+                            }
                             reject(e);
                         }
-                        reject(e);
                     }
                 }
-            });
+            );
         });
     });
 

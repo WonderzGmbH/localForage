@@ -47,7 +47,8 @@ const DefaultConfig = {
     // we can use without a prompt.
     size: 4980736,
     storeName: 'keyvaluepairs',
-    version: 1.0
+    version: 1.0,
+    disableStringifyOnAccess: false
 };
 
 function callWhenReady(localForageInstance, libraryMethod) {

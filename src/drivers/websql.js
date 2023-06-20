@@ -144,7 +144,10 @@ function getItem(key, callback) {
                             // Check to see if this is serialized content we need to
                             // unpack.
                             if (result) {
-                                result = dbInfo.serializer.deserialize(result);
+                                result = dbInfo.serializer.deserialize(
+                                    result,
+                                    dbInfo.disableStringifyOnAccess
+                                );
                             }
 
                             resolve(result);
@@ -189,7 +192,8 @@ function iterate(iterator, callback) {
                                 // we need to unpack.
                                 if (result) {
                                     result = dbInfo.serializer.deserialize(
-                                        result
+                                        result,
+                                        dbInfo.disableStringifyOnAccess
                                     );
                                 }
 
@@ -238,55 +242,59 @@ function _setItem(key, value, callback, retriesLeft) {
                 var originalValue = value;
 
                 var dbInfo = self._dbInfo;
-                dbInfo.serializer.serialize(value, function(value, error) {
-                    if (error) {
-                        reject(error);
-                    } else {
-                        dbInfo.db.transaction(
-                            function(t) {
-                                tryExecuteSql(
-                                    t,
-                                    dbInfo,
-                                    `INSERT OR REPLACE INTO ${
-                                        dbInfo.storeName
-                                    } ` + '(key, value) VALUES (?, ?)',
-                                    [key, value],
-                                    function() {
-                                        resolve(originalValue);
-                                    },
-                                    function(t, error) {
-                                        reject(error);
+                dbInfo.serializer.serialize(
+                    value,
+                    dbInfo.disableStringifyOnAccess,
+                    function(value, error) {
+                        if (error) {
+                            reject(error);
+                        } else {
+                            dbInfo.db.transaction(
+                                function(t) {
+                                    tryExecuteSql(
+                                        t,
+                                        dbInfo,
+                                        `INSERT OR REPLACE INTO ${
+                                            dbInfo.storeName
+                                        } ` + '(key, value) VALUES (?, ?)',
+                                        [key, value],
+                                        function() {
+                                            resolve(originalValue);
+                                        },
+                                        function(t, error) {
+                                            reject(error);
+                                        }
+                                    );
+                                },
+                                function(sqlError) {
+                                    // The transaction failed; check
+                                    // to see if it's a quota error.
+                                    if (sqlError.code === sqlError.QUOTA_ERR) {
+                                        // We reject the callback outright for now, but
+                                        // it's worth trying to re-run the transaction.
+                                        // Even if the user accepts the prompt to use
+                                        // more storage on Safari, this error will
+                                        // be called.
+                                        //
+                                        // Try to re-run the transaction.
+                                        if (retriesLeft > 0) {
+                                            resolve(
+                                                _setItem.apply(self, [
+                                                    key,
+                                                    originalValue,
+                                                    callback,
+                                                    retriesLeft - 1
+                                                ])
+                                            );
+                                            return;
+                                        }
+                                        reject(sqlError);
                                     }
-                                );
-                            },
-                            function(sqlError) {
-                                // The transaction failed; check
-                                // to see if it's a quota error.
-                                if (sqlError.code === sqlError.QUOTA_ERR) {
-                                    // We reject the callback outright for now, but
-                                    // it's worth trying to re-run the transaction.
-                                    // Even if the user accepts the prompt to use
-                                    // more storage on Safari, this error will
-                                    // be called.
-                                    //
-                                    // Try to re-run the transaction.
-                                    if (retriesLeft > 0) {
-                                        resolve(
-                                            _setItem.apply(self, [
-                                                key,
-                                                originalValue,
-                                                callback,
-                                                retriesLeft - 1
-                                            ])
-                                        );
-                                        return;
-                                    }
-                                    reject(sqlError);
                                 }
-                            }
-                        );
+                            );
+                        }
                     }
-                });
+                );
             })
             .catch(reject);
     });
